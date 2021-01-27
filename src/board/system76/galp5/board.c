@@ -9,14 +9,73 @@
 #include <board/peci.h>
 #include <board/power.h>
 #include <common/debug.h>
+#include <common/macro.h>
 
 extern uint8_t main_cycle;
+
+bool have_dgpu = false;
+
+volatile uint8_t __xdata __at(0x1900) ADCSTS;
+volatile uint8_t __xdata __at(0x1901) ADCCFG;
+volatile uint8_t __xdata __at(0x1941) VCH7CTL;
+volatile uint8_t __xdata __at(0x1942) VCH7DATM;
+volatile uint8_t __xdata __at(0x1943) VCH7DATL;
+
+static void board_detect(void) {
+    // Set GPI7 to alt mode
+    GPCRI7 = GPIO_ALT;
+
+    // Perform ADC accuracy initialization
+    ADCSTS |= BIT(3);
+    ADCSTS &= ~BIT(3);
+
+    // Clear channel 7 data valid
+    VCH7CTL |= BIT(7);
+
+    // Enable channel 7
+    VCH7CTL |= BIT(4);
+
+    // Enable ADC
+    ADCCFG |= BIT(0);
+
+    // Wait for channel 7 data valid
+    while (!(VCH7CTL & BIT(7))) {}
+
+    // Read channel 7 data
+    uint8_t low = VCH7DATL;
+    uint8_t high = VCH7DATM;
+
+    DEBUG("VCH7 0x%02X%02X\n", high, low);
+
+    /* TODO
+    if (ADC7 == 1.65V) {
+        have_dgpu = false;
+    } else {
+        have_dgpu = true;
+    }
+    */
+
+    // Disable ADC
+    ADCCFG &= ~BIT(0);
+
+    // Disable channel 7
+    VCH7CTL &= ~BIT(4);
+
+    // Clear channel 7 data valid
+    VCH7CTL |= BIT(7);
+
+    // Set GPI7 to input
+    GPCRI7 = GPIO_IN;
+}
 
 void board_init(void) {
     espi_init();
 
     // Make sure charger is in off state, also enables PSYS
     battery_charger_disable();
+
+    // Detect board features
+    board_detect();
 
     // Allow CPU to boot
     gpio_set(&SB_KBCRST_N, true);
@@ -62,6 +121,9 @@ void board_on_ac(bool ac) {
             ERROR("set_power_limit unknown response: 0x%02X\n", res);
         }
     }
+
+    //XXX just for testing
+    board_detect();
 }
 #else // HAVE_DGPU
 void board_on_ac(bool ac) { /* Fix unused variable */ ac = ac; }
