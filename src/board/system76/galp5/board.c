@@ -21,13 +21,17 @@ volatile uint8_t __xdata __at(0x1941) VCH7CTL;
 volatile uint8_t __xdata __at(0x1942) VCH7DATM;
 volatile uint8_t __xdata __at(0x1943) VCH7DATL;
 
-static void board_detect(void) {
-    // Set GPI7 to alt mode
-    GPCRI7 = GPIO_ALT;
-
+static void adc_init(void) {
     // Perform ADC accuracy initialization
     ADCSTS |= BIT(3);
     ADCSTS &= ~BIT(3);
+}
+
+static void board_detect(void) {
+    DEBUG("have_dgpu before %d\n", have_dgpu);
+
+    // Set GPI7 to alt mode
+    GPCRI7 = GPIO_ALT;
 
     // Clear channel 7 data valid
     VCH7CTL |= BIT(7);
@@ -47,13 +51,21 @@ static void board_detect(void) {
 
     DEBUG("VCH7 0x%02X%02X\n", high, low);
 
-    /* TODO
-    if (ADC7 == 1.65V) {
-        have_dgpu = false;
-    } else {
-        have_dgpu = true;
+    switch (high) {
+        case 0x00:
+            // NVIDIA 1650 variant
+            have_dgpu = true;
+            break;
+        case 0x01:
+        case 0x02:
+            // No NVIDIA variant
+            have_dgpu = false;
+            break;
+        case 0x03:
+            // NVIDIA 1650 Ti variant
+            have_dgpu = true;
+            break;
     }
-    */
 
     // Disable ADC
     ADCCFG &= ~BIT(0);
@@ -66,6 +78,8 @@ static void board_detect(void) {
 
     // Set GPI7 to input
     GPCRI7 = GPIO_IN;
+
+    DEBUG("have_dgpu after %d\n", have_dgpu);
 }
 
 void board_init(void) {
@@ -73,6 +87,9 @@ void board_init(void) {
 
     // Make sure charger is in off state, also enables PSYS
     battery_charger_disable();
+
+    // Initialize ADC, run only once before board_detect
+    adc_init();
 
     // Detect board features
     board_detect();
